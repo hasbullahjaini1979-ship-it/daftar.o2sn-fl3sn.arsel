@@ -1235,13 +1235,38 @@ function pesertaFormHTML(num, fixedGender, key) {
         ${genderSection}
       </div>
       <div class="form-group" style="margin-top:8px">
-        <label class="form-label">Upload Bukti Pendaftaran di Portal Nasional (PDF/Gambar)</label>
-        <div class="file-drop"><input type="file" class="peserta-file" data-key="${key}" accept=".pdf,.jpg,.jpeg,.png">
-          <div class="file-drop-ico">📎</div>
-          <div class="file-drop-txt"><strong>Klik atau seret</strong> file ke sini</div>
+        <label class="form-label">🔗 Link Bukti Pendaftaran di Portal Nasional <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--teks2)">(Google Drive / link dokumen)</span></label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="text" class="peserta-field peserta-drive-link" data-key="${key}" data-field="driveLink"
+            placeholder="https://drive.google.com/file/d/..."
+            style="flex:1"
+            oninput="previewDriveLink(this)">
+          <a class="drive-preview-btn" id="prevBtn_${key}" href="#" target="_blank" rel="noopener"
+            title="Buka link di tab baru"
+            style="display:none;padding:9px 12px;background:var(--hijau);color:white;border-radius:10px;font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;transition:opacity .2s">
+            👁️ Lihat
+          </a>
+        </div>
+        <div style="font-size:11px;color:var(--teks2);margin-top:5px">
+          📌 Upload file ke Google Drive Anda terlebih dahulu, lalu tempel link di sini. Pastikan link sudah diset <strong>Siapa saja yang memiliki link dapat melihat</strong>.
         </div>
       </div>
     </div>`;
+}
+
+function previewDriveLink(input) {
+  const key = input.dataset.key;
+  const btn = document.getElementById('prevBtn_' + key);
+  if (!btn) return;
+  const url = input.value.trim();
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    btn.href = url;
+    btn.style.display = 'inline-flex';
+    btn.style.alignItems = 'center';
+  } else {
+    btn.style.display = 'none';
+    btn.href = '#';
+  }
 }
 
 function selectGender(el) {
@@ -1278,7 +1303,7 @@ function buildReview() {
       <div style="font-size:12px;color:var(--teks2);display:grid;grid-template-columns:1fr 1fr;gap:4px">
         <span>NISN: ${p.nisn}</span><span>Kelas: ${p.kelas}</span>
         <span>T. Lahir: ${p.tempatLahir}</span><span>Tgl: ${p.tglLahir}</span>
-        <span>JK: ${p.jk}</span><span>File: ${p.hasPDF?'✅':'-'}</span>
+        <span>JK: ${p.jk}</span><span>Bukti: ${p.driveLink?`<a href="${escHtml(p.driveLink)}" target="_blank" rel="noopener" style="color:var(--hijau);font-weight:700">🔗 Lihat</a>`:'—'}</span>
       </div>
     </div>`;
   });
@@ -1299,12 +1324,7 @@ function collectPesertaData() {
       results[key].jk=opt.dataset.val;
     }
   });
-  document.querySelectorAll('.peserta-file').forEach(f=>{
-    const key=f.dataset.key;
-    if(!results[key]) results[key]={};
-    results[key].hasPDF=f.files&&f.files.length>0;
-    results[key].fileName=f.files&&f.files[0]?f.files[0].name:'';
-  });
+  // driveLink sudah dikumpulkan dari peserta-field[data-field="driveLink"] di atas
   return Object.values(results);
 }
 
@@ -1321,7 +1341,7 @@ async function submitForm() {
     sekolah:sekolah||'', nama:p.nama||'', nisn:p.nisn||'',
     tempatLahir:p.tempatLahir||'', tglLahir:p.tglLahir||'',
     kelas:p.kelas||'', jk:p.jk||'',
-    fileName:p.fileName||'', tglDaftar:today,
+    fileName:p.driveLink||'', tglDaftar:today,
     noRegistrasi:noReg,
     rowIndex:allPeserta.length+1
   }));
@@ -1377,7 +1397,8 @@ function buildBuktiHTML(rows, noReg) {
     <div class="bukti-row"><div class="bukti-key">NISN</div><div class="bukti-val">${escHtml(p.nisn)}</div></div>
     <div class="bukti-row"><div class="bukti-key">Tempat, Tgl Lahir</div><div class="bukti-val">${escHtml(p.tempatLahir)}, ${escHtml(p.tglLahir)}</div></div>
     <div class="bukti-row"><div class="bukti-key">Kelas</div><div class="bukti-val">${escHtml(p.kelas)}</div></div>
-    <div class="bukti-row"><div class="bukti-key">Jenis Kelamin</div><div class="bukti-val">${escHtml(p.jk)}</div></div>`).join('');
+    <div class="bukti-row"><div class="bukti-key">Jenis Kelamin</div><div class="bukti-val">${escHtml(p.jk)}</div></div>
+    ${p.fileName ? `<div class="bukti-row"><div class="bukti-key">Bukti Portal</div><div class="bukti-val"><a href="${escHtml(p.fileName)}" target="_blank" rel="noopener" style="color:var(--biru);font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px">🔗 Lihat Bukti Pendaftaran</a></div></div>` : ''}`).join('');
   return `
     <div class="bukti-paper" id="buktiPaper">
       <div class="bukti-header">
@@ -1466,6 +1487,9 @@ function renderTable(data) {
       <td><span class="pill ${p.jk==='Laki-laki'?'pill-l':'pill-p'}">${p.jk==='Laki-laki'?'L':'P'}</span></td>
       <td style="font-size:11px;color:var(--teks2)">${p.tglDaftar||'–'}</td>
       <td>
+        ${p.fileName && (p.fileName.startsWith('http://') || p.fileName.startsWith('https://'))
+          ? `<a href="${escHtml(p.fileName)}" target="_blank" rel="noopener" class="action-btn" title="Lihat Bukti" style="text-decoration:none;display:inline-block">🔗</a>`
+          : `<span title="Belum ada bukti" style="opacity:.3;padding:5px;display:inline-block">📎</span>`}
         <button class="action-btn" onclick="viewBuktiPeserta(${i},'${currentFilter}')" title="Bukti">📄</button>
         <button class="action-btn" onclick="openEditRow(${p.rowIndex||i})" title="Edit">✏️</button>
         <button class="action-btn" onclick="openDeleteRow(${p.rowIndex||i})" title="Hapus">🗑️</button>
@@ -1688,7 +1712,7 @@ function handleWrite(payload, ss) {
   if (action === 'addPeserta') {
     const sheet = ss.getSheetByName('Peserta');
     if (sheet.getLastRow() === 0)
-      sheet.appendRow(['cabang','jenis','sekolah','nama','nisn','tempatLahir','tglLahir','kelas','jk','fileName','tglDaftar','noRegistrasi']);
+      sheet.appendRow(['cabang','jenis','sekolah','nama','nisn','tempatLahir','tglLahir','kelas','jk','driveLink','tglDaftar','noRegistrasi']);
     payload.rows.forEach(r => sheet.appendRow([
       r.cabang||'', r.jenis||'', r.sekolah||'', r.nama||'', r.nisn||'',
       r.tempatLahir||'', r.tglLahir||'', r.kelas||'', r.jk||'',
