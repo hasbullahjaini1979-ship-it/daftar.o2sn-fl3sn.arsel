@@ -673,7 +673,17 @@ async function loadAllData() {
       fetchGAS('getAnnouncements'),
       fetchGAS('getSekolah')
     ]);
-    allPeserta = pesertaRes.data || [];
+    allPeserta = (pesertaRes.data || []).map(p => {
+      // Normalisasi field jk — tangani semua variasi header dari sheet lama/baru
+      if (!p.jk || String(p.jk).toLowerCase() === 'undefined') {
+        p.jk = p['Jenis Kelamin'] || p.jenisKelamin || p.gender || p.JK || '';
+      }
+      // Normalisasi field driveLink — sheet lama mungkin pakai header fileName
+      if (!p.driveLink) {
+        p.driveLink = p.fileName || p['Drive Link'] || p.drivelink || '';
+      }
+      return p;
+    });
     announcements_data = annRes.data || [];
     // Update masterSekolah dari sheet jika ada data
     if (sekolahRes.data && sekolahRes.data.length > 0) {
@@ -1276,14 +1286,32 @@ function selectGender(el) {
 }
 
 function validatePesertaForms() {
-  // Semua field boleh kosong - hanya pastikan nama tidak kosong
   document.querySelectorAll('.peserta-field').forEach(f => f.classList.remove('error'));
-  const namaFields = document.querySelectorAll('.peserta-field[data-field="nama"]');
   let ok = true;
-  namaFields.forEach(f => {
+
+  // Validasi nama
+  document.querySelectorAll('.peserta-field[data-field="nama"]').forEach(f => {
     if(!f.value.trim()) { f.classList.add('error'); ok=false; }
   });
-  if(!ok) showToast('⚠️ Nama peserta wajib diisi');
+
+  // Validasi gender untuk cabang bebas (bukan fixedGender/hidden)
+  // Cek setiap group gender-wrap: apakah sudah ada yang selected?
+  const genderGroups = new Set();
+  document.querySelectorAll('.gender-opt').forEach(opt => genderGroups.add(opt.dataset.group));
+  genderGroups.forEach(group => {
+    const selected = document.querySelector(`.gender-opt[data-group="${group}"].selected-l, .gender-opt[data-group="${group}"].selected-p`);
+    if (!selected) {
+      // Tandai wrap gender sebagai error
+      const wrap = document.querySelector(`.gender-opt[data-group="${group}"]`)?.closest('.form-group');
+      if (wrap) wrap.style.outline = '2px solid var(--merah)';
+      ok = false;
+    } else {
+      const wrap = document.querySelector(`.gender-opt[data-group="${group}"]`)?.closest('.form-group');
+      if (wrap) wrap.style.outline = '';
+    }
+  });
+
+  if(!ok) showToast('⚠️ Nama peserta dan jenis kelamin wajib diisi');
   return ok;
 }
 
@@ -1312,11 +1340,14 @@ function buildReview() {
 
 function collectPesertaData() {
   const results={};
+  // Kumpulkan semua peserta-field (termasuk hidden input jk untuk fixedGender)
   document.querySelectorAll('.peserta-field').forEach(f=>{
     const key=f.dataset.key, field=f.dataset.field;
+    if(!key||!field) return;
     if(!results[key]) results[key]={};
     results[key][field]=f.value;
   });
+  // Override jk dari gender-opt yang dipilih (untuk cabang bebas/non-fixed)
   document.querySelectorAll('.gender-opt').forEach(opt=>{
     if(opt.classList.contains('selected-l')||opt.classList.contains('selected-p')){
       const key=opt.dataset.group;
@@ -1340,8 +1371,8 @@ async function submitForm() {
     jenis:selectedCabangObj.jenisNama||'',
     sekolah:sekolah||'', nama:p.nama||'', nisn:p.nisn||'',
     tempatLahir:p.tempatLahir||'', tglLahir:p.tglLahir||'',
-    kelas:p.kelas||'', jk:p.jk||'',
-    fileName:p.driveLink||'', tglDaftar:today,
+    kelas:p.kelas||'', jk:resolveJK(p),
+    driveLink:p.driveLink||'', tglDaftar:today,
     noRegistrasi:noReg,
     rowIndex:allPeserta.length+1
   }));
@@ -1387,18 +1418,37 @@ function openBukti(rows, noReg) {
   document.getElementById('modalBukti').classList.add('open');
 }
 
+function formatTglLahir(val) {
+  if (!val) return '–';
+  // Jika ISO string (misal 2015-01-22T17:00:00.000Z), format ke tanggal lokal
+  const d = new Date(val);
+  if (!isNaN(d.getTime()) && String(val).includes('T')) {
+    return d.toLocaleDateString('id-ID', {day:'2-digit', month:'long', year:'numeric'});
+  }
+  // Jika sudah format biasa (yyyy-mm-dd atau dd/mm/yyyy), kembalikan apa adanya
+  return val;
+}
+
+function resolveJK(p) {
+  // Coba semua kemungkinan field nama jenis kelamin dari berbagai sumber data
+  const raw = p.jk || p['Jenis Kelamin'] || p.jenisKelamin || p.gender
+           || p.JK || p['jenis_kelamin'] || p['jenis kelamin'] || '';
+  if (!raw || String(raw).toLowerCase() === 'undefined' || String(raw).trim() === '') return '–';
+  return String(raw).trim();
+}
+
 function buildBuktiHTML(rows, noReg) {
   if(!rows||!rows.length) return '';
   const r=rows[0];
   const today=new Date().toLocaleDateString('id-ID',{year:'numeric',month:'long',day:'numeric'});
   let pesertaHTML=rows.map((p,i)=>`
     <div class="bukti-peserta-title">Peserta ${i+1}</div>
-    <div class="bukti-row"><div class="bukti-key">Nama</div><div class="bukti-val">${escHtml(p.nama)}</div></div>
-    <div class="bukti-row"><div class="bukti-key">NISN</div><div class="bukti-val">${escHtml(p.nisn)}</div></div>
-    <div class="bukti-row"><div class="bukti-key">Tempat, Tgl Lahir</div><div class="bukti-val">${escHtml(p.tempatLahir)}, ${escHtml(p.tglLahir)}</div></div>
-    <div class="bukti-row"><div class="bukti-key">Kelas</div><div class="bukti-val">${escHtml(p.kelas)}</div></div>
-    <div class="bukti-row"><div class="bukti-key">Jenis Kelamin</div><div class="bukti-val">${escHtml(p.jk)}</div></div>
-    ${p.fileName ? `<div class="bukti-row"><div class="bukti-key">Bukti Portal</div><div class="bukti-val"><a href="${escHtml(p.fileName)}" target="_blank" rel="noopener" style="color:var(--biru);font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px">🔗 Lihat Bukti Pendaftaran</a></div></div>` : ''}`).join('');
+    <div class="bukti-row"><div class="bukti-key">Nama</div><div class="bukti-val">${escHtml(p.nama||'–')}</div></div>
+    <div class="bukti-row"><div class="bukti-key">NISN</div><div class="bukti-val">${escHtml(p.nisn||'–')}</div></div>
+    <div class="bukti-row"><div class="bukti-key">Tempat, Tgl Lahir</div><div class="bukti-val">${escHtml(p.tempatLahir||'–')}, ${escHtml(formatTglLahir(p.tglLahir))}</div></div>
+    <div class="bukti-row"><div class="bukti-key">Kelas</div><div class="bukti-val">${escHtml(p.kelas||'–')}</div></div>
+    <div class="bukti-row"><div class="bukti-key">Jenis Kelamin</div><div class="bukti-val">${escHtml(resolveJK(p))}</div></div>
+    ${(p.fileName||p.driveLink) ? `<div class="bukti-row"><div class="bukti-key">Bukti Portal</div><div class="bukti-val"><a href="${escHtml(p.fileName||p.driveLink)}" target="_blank" rel="noopener" style="color:var(--biru);font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px">🔗 Lihat Bukti Pendaftaran</a></div></div>` : ''}`).join('');
   return `
     <div class="bukti-paper" id="buktiPaper">
       <div class="bukti-header">
@@ -1484,12 +1534,10 @@ function renderTable(data) {
       <td style="font-weight:600">${escHtml(p.nama||'')}</td>
       <td>${escHtml(p.nisn||'')}</td>
       <td>${escHtml(p.kelas||'')}</td>
-      <td><span class="pill ${p.jk==='Laki-laki'?'pill-l':'pill-p'}">${p.jk==='Laki-laki'?'L':'P'}</span></td>
+      <td><span class="pill ${resolveJK(p)==='Laki-laki'?'pill-l':'pill-p'}">${resolveJK(p)==='Laki-laki'?'L':'P'}</span></td>
       <td style="font-size:11px;color:var(--teks2)">${p.tglDaftar||'–'}</td>
       <td>
-        ${p.fileName && (p.fileName.startsWith('http://') || p.fileName.startsWith('https://'))
-          ? `<a href="${escHtml(p.fileName)}" target="_blank" rel="noopener" class="action-btn" title="Lihat Bukti" style="text-decoration:none;display:inline-block">🔗</a>`
-          : `<span title="Belum ada bukti" style="opacity:.3;padding:5px;display:inline-block">📎</span>`}
+        ${(()=>{ const lnk=p.driveLink||p.fileName||''; return lnk.startsWith('http')?`<a href="${escHtml(lnk)}" target="_blank" rel="noopener" class="action-btn" title="Lihat Bukti" style="text-decoration:none;display:inline-block">🔗</a>`:`<span title="Belum ada bukti" style="opacity:.3;padding:5px;display:inline-block">📎</span>`; })()}
         <button class="action-btn" onclick="viewBuktiPeserta(${i},'${currentFilter}')" title="Bukti">📄</button>
         <button class="action-btn" onclick="openEditRow(${p.rowIndex||i})" title="Edit">✏️</button>
         <button class="action-btn" onclick="openDeleteRow(${p.rowIndex||i})" title="Hapus">🗑️</button>
@@ -1716,7 +1764,7 @@ function handleWrite(payload, ss) {
     payload.rows.forEach(r => sheet.appendRow([
       r.cabang||'', r.jenis||'', r.sekolah||'', r.nama||'', r.nisn||'',
       r.tempatLahir||'', r.tglLahir||'', r.kelas||'', r.jk||'',
-      r.fileName||'', r.tglDaftar||'', r.noRegistrasi||''
+      r.driveLink||'', r.tglDaftar||'', r.noRegistrasi||''
     ]));
     return out({ ok: true });
   }
